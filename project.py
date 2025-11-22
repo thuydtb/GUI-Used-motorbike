@@ -431,7 +431,8 @@ Vui lòng nhập đầy đủ các thông tin bên dưới trước khi thực h
         })
 
         # Dự đoán giá
-        predicted_price = model.predict(input_data)[0]
+        predicted_price_log = model.predict(input_data)[0]
+        predicted_price = np.expm1(predicted_price_log)
         predicted_price_vnd = predicted_price * 1_000_000
         formatted_price = f"{predicted_price_vnd:,.0f}"
 

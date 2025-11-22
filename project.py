@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
 import joblib, json
-
+import datetime
+import streamlit.components.v1 as components
 
 
 
@@ -480,7 +481,7 @@ with tab4:
 
     # Các hàm rule-based
     def business_rules(df):
-        return ((df['price'] < 1) | (df['price'] > 500000) | (df['km_driven'] > 200000)).astype(int)
+        return ((df['price'] < 1) | (df['price'] > 500) | (df['km_driven'] > 200000)).astype(int)
     def modified_zscore(df, col='price'):
         median = df[col].median()
         mad = (df[col] - median).abs().median()
@@ -536,7 +537,7 @@ with tab4:
         tab3_nam_dang_ky = st.slider("Năm đăng ký", 1980, 2025, 2020,key="tab3_registration_year")
         tab3_so_km_da_di = st.number_input("Số km đã đi", min_value=0, max_value=200000, value=50000, step=1000,key="tab3_km_driven")
         tab3_quan = st.selectbox("Chọn quận của bạn", df['location'].sort_values().unique(),key="tab3_location")
-        tab3_gia_dong= st.number_input("Giá bán", min_value=0, max_value=500_000_000, value=30_000_000, step=100_000,key="tab3_price_vnd")
+        tab3_gia_dong= st.number_input("Giá bán", step=100_000,key="tab3_price_vnd")
 
     tab3_gia_trieu = tab3_gia_dong / 1_000_000
 
@@ -570,44 +571,111 @@ with tab4:
                                                     'price_log')
         input_data['final_anomaly'], input_data['ensemble_score'] = ensemble(input_data, weights)
         result = input_data[['brand','model','price','km_driven','age','final_anomaly','ensemble_score']].copy()
-        result['status'] = result['final_anomaly'].apply(lambda x: "Bình thường" if x == 0 else "Bất thường")
+        result['status'] = result['final_anomaly'].apply(lambda x: "Bình thường" if x == 0 else "Bất thường")       
+        business_val   = int(input_data['business'].iloc[0])
+        modified_val   = int(input_data['modified_z'].iloc[0])
+        iqr_val        = int(input_data['iqr'].iloc[0])
+        isolation_val  = int(input_data['isolation'].iloc[0])
+        residual_val   = int(input_data['residual'].iloc[0])
+
         status = result['status'].iloc[0]
         if "Bình thường" in status:
             color = "white"
         else:
             color = "red"
 
-
-        # In thông tin + kết quả
-        st.markdown(f"""
-        <div style="
-            border:2px solid #0ea5e9;
-            border-radius:8px;
-            padding:15px;
-            margin-top:15px;
-            background-color:#1E293B;">
-            <h4 style="color:#0ea5e9;">🛵 Anomaly Results</h4>
-            <p style="color:{color}; font-size:1.3rem; font-weight:bold;">
-                {status}
-            </p>
-
-        </div>
-
-        """, unsafe_allow_html=True)
+        # Logic hiển thị chi tiết
+        if status == "Bình thường":
+            st.success("✅ Đăng bài thành công!")
+        else:
+            notes_text = (
+                f"Business: {business_val}; "
+                f"Modified Z-score: {modified_val}; "
+                f"IQR: {iqr_val}; "
+                f"Isolation Forest: {isolation_val}; "
+                f"Residual: {residual_val}"
+            )
 
 
-    
+            # Hiển thị trong cùng khung
+            st.markdown(f"""
+            <div style="
+                border:2px solid #facc15;
+                border-radius:8px;
+                padding:15px;
+                margin-top:15px;
+                background-color:#1E293B;">
+                <h4 style="color:#facc15;">⚠️ Cảnh báo bất thường:</h4>
+                <p style="color:white; margin-top:10px;">
+                    Mức giá bán hiện tại có sự chênh lệch khá lớn so với các sản phẩm tương tự trên thị trường.
+                </p>
+                <p style="color:white; margin-top:10px;">
+                    Bạn có muốn tiếp tục đăng bài?
+                    <span style="color:#22c55e; font-weight:bold;">Tiếp tục</span> /
+                    <span style="color:#ef4444; font-weight:bold;">Hủy</span>
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+            new_id = 1
+            timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            new_row = {
+                "STT": new_id,
+                "Thời gian": timestamp,
+                "Hãng xe": tab3_thuong_hieu,
+                "Dòng xe": tab3_dong_xe,
+                "Loại xe": tab3_loai_xe,
+                "Xuất xứ": tab3_nguon_goc,
+                "Dung tích xi-lanh": tab3_dung_tich_xi_lanh,
+                "Năm đăng ký": tab3_nam_dang_ky,
+                "Số km đã đi": tab3_so_km_da_di,
+                "Quận": tab3_quan,
+                "Giá bán": tab3_gia_dong,
+                "Tình trạng": status,
+                "Ghi chú": notes_text if status == "Bất thường" else ""
+            }
+            df_display = pd.DataFrame([new_row])
+            # Hiển thị bảng kết quả
+            st.markdown("<div style='margin-top:60px'></div>", unsafe_allow_html=True)
+            st.markdown("""
+                <h2 style="text-align:center; margin-bottom:10px;">
+                    Danh sách bài đăng
+                </h2>
+                <hr style="border:2px solid white; width:200px; margin:0 auto;margin-bottom:30px;">
+            """, unsafe_allow_html=True)
+            html_table = df_display.reset_index(drop=True)[[
+                "STT","Thời gian","Hãng xe","Dòng xe","Loại xe","Xuất xứ",
+                "Dung tích xi-lanh","Năm đăng ký","Số km đã đi","Quận",
+                "Giá bán","Tình trạng","Ghi chú"
+            ]].to_html(index=False)
+            html_code = f"""
+            <style>
+            table.dataframe {{
+                color: white;
+                background-color: #1E293B;
+                border-collapse: collapse;
+                width: 100%;
+            }}
+            table.dataframe th {{
+                color: white;
+                background-color: #0ea5e9;
+                padding: 8px;
+            }}
+            table.dataframe td {{
+                color: white;
+                padding: 8px;
+            }}
+            </style>
+            {html_table}
+            """
+
+            components.html(html_code, height=400, scrolling=True)
+
+ 
 
 
 # ===================  HẾT NỘI DUNG MENU ===================
 
-
-
 # Done
-    
-    
-    
-        
-
-        
-        
+     

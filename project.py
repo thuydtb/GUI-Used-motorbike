@@ -622,9 +622,9 @@ with tab4:
             """, unsafe_allow_html=True)
 
 
-        new_id = 1
-        timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        new_row = {
+            new_id = 1
+            timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            new_row = {
             "STT": new_id,
             "Thời gian": timestamp,
             "Hãng xe": tab3_thuong_hieu,
@@ -638,22 +638,22 @@ with tab4:
             "Giá bán": tab3_gia_dong,
             "Tình trạng": status,
             "Ghi chú": notes_text if status == "Bất thường" else ""
-        }
-        df_display = pd.DataFrame([new_row])
-        # Hiển thị bảng kết quả
-        st.markdown("<div style='margin-top:60px'></div>", unsafe_allow_html=True)
-        st.markdown("""
+            }
+            df_display = pd.DataFrame([new_row])
+            # Hiển thị bảng kết quả
+            st.markdown("<div style='margin-top:60px'></div>", unsafe_allow_html=True)
+            st.markdown("""
                 <h2 style="text-align:center; margin-bottom:10px;">
-                    Danh sách bài đăng
+                    Danh sách bài đăng bất thường
                 </h2>
                 <hr style="border:2px solid white; width:200px; margin:0 auto;margin-bottom:30px;">
-        """, unsafe_allow_html=True)
-        html_table = df_display.reset_index(drop=True)[[
+            """, unsafe_allow_html=True)
+            html_table = df_display.reset_index(drop=True)[[
                 "STT","Thời gian","Hãng xe","Dòng xe","Loại xe","Xuất xứ",
                 "Dung tích xi-lanh","Năm đăng ký","Số km đã đi","Quận",
                 "Giá bán","Tình trạng","Ghi chú"
-        ]].to_html(index=False)
-        html_code = f"""
+            ]].to_html(index=False)
+            html_code = f"""
             <style>
             table.dataframe {{
                 color: white;
@@ -674,7 +674,7 @@ with tab4:
             {html_table}
             """
 
-        components.html(html_code, height=400, scrolling=True)
+            components.html(html_code, height=400, scrolling=True)
 
  
 

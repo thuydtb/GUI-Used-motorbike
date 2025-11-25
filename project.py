@@ -165,7 +165,7 @@ with tab1:
     ax.set_facecolor("#1E293B")          # nền trong chart
     top_models.plot(kind='bar', ax=ax, color="#0ea5e9")
     ax.tick_params(colors="white")
-    ax.set_title("Top 5 Most Listed Motorbikes",color="white",  family="Arial",weight="bold")
+    ax.set_title("Top 5 Most Listed Motorbikes",color="white",  weight="bold")
     ax.set_xlabel("") 
     ax.set_ylabel("Number of Records",color="white")
 
@@ -193,7 +193,7 @@ with tab1:
     ))
     fig1.update_layout(
         title="Motorbike Brand Distribution",
-        title_font=dict(color="white",family="Arial"),
+        title_font=dict(color="white"),
         height=400,
         paper_bgcolor="#1E293B",
         plot_bgcolor="#1E293B",

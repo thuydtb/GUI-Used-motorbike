@@ -7,6 +7,8 @@ import plotly.graph_objects as go
 import joblib, json
 import datetime
 import streamlit.components.v1 as components
+import os
+import time
 
 
 
@@ -102,11 +104,12 @@ div.stButton > button:first-child:hover * {
 # Using menu
 st.image("banner.png")
 st.markdown("<div style='margin-top:30px'></div>", unsafe_allow_html=True)
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Thông tin dự án",
     "Thuật toán sử dụng",
     "Dự báo giá",
-    "Phát hiện bất thường"
+    "Phát hiện bất thường",
+    "DS bài đăng bất thường"
 ])
 
 
@@ -478,24 +481,36 @@ Vui lòng nhập đầy đủ các thông tin bên dưới trước khi thực h
 
 
 with tab4:
+
+    # ========= KHỞI TẠO SESSION STATE =========
+    if "confirm_mode" not in st.session_state:
+        st.session_state.confirm_mode = False
+    
+    if "pending_row" not in st.session_state:
+        st.session_state.pending_row = None
+
+    # ========= TẢI MODEL =========
     iso_model = joblib.load("isolation_forest.joblib")
     rf_pipeline = joblib.load("residual_rf.joblib")
     with open("ensemble_weights.json","r") as f:
         weights = json.load(f)
 
-    # Các hàm rule-based
+    # ========= HÀM PHÁT HIỆN BẤT THƯỜNG =========
     def business_rules(df):
         return ((df['price'] < 1) | (df['price'] > 500) | (df['km_driven'] > 200000)).astype(int)
+
     def modified_zscore(df, col='price'):
         median = df[col].median()
         mad = (df[col] - median).abs().median()
         z = 0.6745 * (df[col] - median) / mad
         return (abs(z) > 3.5).astype(int)
+
     def iqr_anomalies(df, col='price'):
         Q1 = df[col].quantile(0.25)
         Q3 = df[col].quantile(0.75)
         IQR = Q3 - Q1
         return ((df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)).astype(int)
+
     def residual_anomalies(df, rf_pipeline, numeric_features, categorical_features, target):
         X = df[numeric_features + categorical_features]
         y_true = df[target]
@@ -503,6 +518,7 @@ with tab4:
         residuals = abs(y_true - y_pred)
         threshold = residuals.mean() + 2*residuals.std()
         return (residuals > threshold).astype(int)
+
     def ensemble(df, weights):
         score = (
             df['business']*weights['business'] +
@@ -513,172 +529,201 @@ with tab4:
         )
         return (score >= 0.5).astype(int), score
 
-    # Streamlit UI
+    # ========= UI TIÊU ĐỀ =========
     st.markdown("""
     <h2 style="text-align:center; margin-bottom:10px;">
         Phát hiện bất thường
     </h2>
     <hr style="border:2px solid white; width:200px; margin:0 auto;margin-bottom:30px;">
     """, unsafe_allow_html=True)
+    st.write("Vui lòng nhập thông tin bên dưới:")
 
-    st.markdown("""
-    <p style="color:#ffffff">
-        Vui lòng nhập đầy đủ các thông tin bên dưới trước khi đăng bán sản phẩm.
-    </p>
-
-    """, unsafe_allow_html=True)
-
-    # Form nhập tay
+    # ========= FORM INPUT =========
     col1, col2 = st.columns(2,gap="large")
+
     with col1:
-        tab3_thuong_hieu = st.selectbox("Hãng xe", df['brand'].sort_values().unique(), key="tab3_brand")
-        tab3_dong_xe = st.selectbox("Dòng xe", df['model'].sort_values().unique(),key="tab3_model")
-        tab3_loai_xe = st.selectbox("Loại xe", df['vehicle_type'].sort_values().unique(),key="tab3_vehicle_type")
-        tab3_nguon_goc = st.selectbox("Xuất xứ", df['origin'].sort_values().unique(),key="tab3_origin")
+        brand = st.selectbox("Hãng xe", df['brand'].unique())
+        model = st.selectbox("Dòng xe", df['model'].unique())
+        vehicle = st.selectbox("Loại xe", df['vehicle_type'].unique())
+        origin = st.selectbox("Xuất xứ", df['origin'].unique())
 
     with col2:
-        tab3_dung_tich_xi_lanh = st.selectbox("Dung tích xi-lanh", df['engine_capacity'].sort_values().unique(),key="tab3_engine_capacity")
-        tab3_nam_dang_ky = st.slider("Năm đăng ký", 1980, 2025, 2020,key="tab3_registration_year")
-        tab3_so_km_da_di = st.number_input("Số km đã đi", min_value=0, max_value=200000, value=50000, step=1000,key="tab3_km_driven")
-        tab3_quan = st.selectbox("Chọn quận của bạn", df['location'].sort_values().unique(),key="tab3_location")
-        tab3_gia_dong= st.number_input("Giá bán", step=100_000,key="tab3_price_vnd")
+        engine = st.selectbox("Dung tích xi-lanh", df['engine_capacity'].unique())
+        reg_year = st.slider("Năm đăng ký", 1980, 2025, 2020,key="nam_dk")
+        km = st.number_input("Số km đã đi", min_value=0, max_value=200000, value=50000)
+        location = st.selectbox("Quận", df['location'].unique())
+        price_vnd = st.number_input("Giá bán (VND)", step=100_000)
 
-    tab3_gia_trieu = tab3_gia_dong / 1_000_000
+    price_m = price_vnd / 1_000_000
 
-    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
-    phat_hien_bat_thuong = st.button("Đăng bán")
+    submit = st.button("Đăng bán")
 
-    if phat_hien_bat_thuong:
-        # Chuẩn bị dữ liệu đầu vào
-        input_data = pd.DataFrame({
-            "brand": [tab3_thuong_hieu],
-            "model": [tab3_dong_xe],
-            "vehicle_type": [tab3_loai_xe],
-            "origin": [tab3_nguon_goc],
-            "engine_capacity": [tab3_dung_tich_xi_lanh],
-            "age": [2025 - tab3_nam_dang_ky],
-            "km_driven": [tab3_so_km_da_di],
-            "location": [tab3_quan],
-            "price": [tab3_gia_trieu],
-            "price_log": [np.log1p(tab3_gia_trieu)]
+    # ========= KHI BẤM ĐĂNG BÁN =========
+    if submit:
+
+        # Tạo input
+        new = pd.DataFrame({
+            "brand":[brand],
+            "model":[model],
+            "vehicle_type":[vehicle],
+            "origin":[origin],
+            "engine_capacity":[engine],
+            "age":[2025 - reg_year],
+            "km_driven":[km],
+            "location":[location],
+            "price":[price_m],
+            "price_log":[np.log1p(price_m)]
         })
 
-        # Chạy anomaly detection cho input_data
-        input_data['business'] = business_rules(input_data)
-        input_data['modified_z'] = modified_zscore(input_data, 'price')
-        input_data['iqr'] = iqr_anomalies(input_data, 'price')
-        X_iso = input_data[['price','km_driven','age']].values
-        input_data['isolation'] = (iso_model.predict(X_iso) == -1).astype(int)
-        input_data['residual'] = residual_anomalies(input_data, rf_pipeline,
-                                                    ['km_driven','age'],
-                                                    ['brand','model','engine_capacity','vehicle_type','origin','location'],
-                                                    'price_log')
-        input_data['final_anomaly'], input_data['ensemble_score'] = ensemble(input_data, weights)
-        result = input_data[['brand','model','price','km_driven','age','final_anomaly','ensemble_score']].copy()
-        result['status'] = result['final_anomaly'].apply(lambda x: "Bình thường" if x == 0 else "Bất thường")       
-        business_val   = int(input_data['business'].iloc[0])
-        modified_val   = int(input_data['modified_z'].iloc[0])
-        iqr_val        = int(input_data['iqr'].iloc[0])
-        isolation_val  = int(input_data['isolation'].iloc[0])
-        residual_val   = int(input_data['residual'].iloc[0])
+        # Chạy anomaly detection
+        new["business"] = business_rules(new)
+        new["modified_z"] = modified_zscore(new)
+        new["iqr"] = iqr_anomalies(new)
 
-        status = result['status'].iloc[0]
-        if "Bình thường" in status:
-            color = "white"
-        else:
-            color = "red"
+        X_iso = new[['price','km_driven','age']].values
+        new["isolation"] = (iso_model.predict(X_iso) == -1).astype(int)
 
-        # Logic hiển thị chi tiết
+        new["residual"] = residual_anomalies(
+            new, rf_pipeline,
+            ["km_driven","age"],
+            ["brand","model","engine_capacity","vehicle_type","origin","location"],
+            "price_log"
+        )
+
+        new["final_anomaly"], new["score"] = ensemble(new, weights)
+
+        status = "Bình thường" if new["final_anomaly"].iloc[0] == 0 else "Bất thường"
+
+        # ========= Nếu bình thường =========
         if status == "Bình thường":
-            st.success("✅ Đăng bài thành công!")
+            st.success("Đăng bài thành công")
+            st.session_state.confirm_mode = False
+
         else:
-            notes_text = (
-                f"Business: {business_val}; "
-                f"Modified Z-score: {modified_val}; "
-                f"IQR: {iqr_val}; "
-                f"Isolation Forest: {isolation_val}; "
-                f"Residual: {residual_val}"
-            )
+            # Lưu tạm vào session_state
+            st.session_state.confirm_mode = True
+            st.session_state.pending_row = {
+                "Thời gian": datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "Hãng xe": brand,
+                "Dòng xe": model,
+                "Loại xe": vehicle,
+                "Xuất xứ": origin,
+                "Dung tích xi-lanh": engine,
+                "Năm đăng ký": reg_year,
+                "Số km đã đi": km,
+                "Quận": location,
+                "Giá bán": price_vnd,
+                "Tình trạng": status,
+                "Ghi chú": (
+                    "Chi tiết bất thường: "
+                    f"Business={new['business'].iloc[0]}, "
+                    f"Z={new['modified_z'].iloc[0]}, "
+                    f"IQR={new['iqr'].iloc[0]}, "
+                    f"ISO={new['isolation'].iloc[0]}, "
+                    f"Residual={new['residual'].iloc[0]}, "
+                    f"Score={new['score'].iloc[0]:.3f}"
+                )
+            }
 
-
-            # Hiển thị trong cùng khung
-            st.markdown(f"""
-            <div style="
-                border:2px solid #facc15;
-                border-radius:8px;
-                padding:15px;
-                margin-top:15px;
-                background-color:#1E293B;">
+    # ========= KHU HIỂN THỊ CONFIRM (LUÔN CHẠY SAU RERUN) =========
+    if st.session_state.confirm_mode:
+        st.markdown("<div style='margin-top:30px'></div>", unsafe_allow_html=True)
+        st.markdown("""
+            <div >
                 <h4 style="color:#facc15;">⚠️ Cảnh báo bất thường:</h4>
                 <p style="color:white; margin-top:10px;">
                     Mức giá bán hiện tại có sự chênh lệch khá lớn so với các sản phẩm tương tự trên thị trường.
                 </p>
-                <p style="color:white; margin-top:10px;">
+                <p style="color:white;">
                     Bạn có muốn tiếp tục đăng bài?
-                    <span style="color:#22c55e; font-weight:bold;">Tiếp tục</span> /
-                    <span style="color:#ef4444; font-weight:bold;">Hủy</span>
                 </p>
             </div>
-            """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
+        colC, colD = st.columns(2)
+        yes = colC.button("✔ Tiếp tục đăng")
+        no = colD.button("✖ Hủy")
 
-            new_id = 1
-            timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-            new_row = {
-            "STT": new_id,
-            "Thời gian": timestamp,
-            "Hãng xe": tab3_thuong_hieu,
-            "Dòng xe": tab3_dong_xe,
-            "Loại xe": tab3_loai_xe,
-            "Xuất xứ": tab3_nguon_goc,
-            "Dung tích xi-lanh": tab3_dung_tich_xi_lanh,
-            "Năm đăng ký": tab3_nam_dang_ky,
-            "Số km đã đi": tab3_so_km_da_di,
-            "Quận": tab3_quan,
-            "Giá bán": tab3_gia_dong,
-            "Tình trạng": status,
-            "Ghi chú": notes_text if status == "Bất thường" else ""
-            }
-            df_display = pd.DataFrame([new_row])
-            # Hiển thị bảng kết quả
-            st.markdown("<div style='margin-top:60px'></div>", unsafe_allow_html=True)
-            st.markdown("""
-                <h2 style="text-align:center; margin-bottom:10px;">
-                    Danh sách bài đăng bất thường
-                </h2>
-                <hr style="border:2px solid white; width:200px; margin:0 auto;margin-bottom:30px;">
-            """, unsafe_allow_html=True)
-            html_table = df_display.reset_index(drop=True)[[
-                "STT","Thời gian","Hãng xe","Dòng xe","Loại xe","Xuất xứ",
-                "Dung tích xi-lanh","Năm đăng ký","Số km đã đi","Quận",
-                "Giá bán","Tình trạng","Ghi chú"
-            ]].to_html(index=False)
-            html_code = f"""
-            <style>
-            table.dataframe {{
-                color: white;
-                background-color: #1E293B;
-                border-collapse: collapse;
-                width: 100%;
-            }}
-            table.dataframe th {{
-                color: white;
-                background-color: #0ea5e9;
-                padding: 8px;
-            }}
-            table.dataframe td {{
-                color: white;
-                padding: 8px;
-            }}
-            </style>
-            {html_table}
-            """
+        # ---- LƯU FILE CSV ----
+        if yes:
+            save_file = r"./posts.csv"
 
-            components.html(html_code, height=400, scrolling=True)
+            try:
+                df_show = pd.DataFrame([st.session_state.pending_row])
+                df_show.to_csv(
+                    save_file,
+                    mode="a",
+                    header=not os.path.exists(save_file),
+                    index=False,
+                    encoding="utf-8-sig"
+                )
+                st.success("Bài đăng đang chờ phê duyệt.")
+            except Exception as e:
+                st.error(f"Lỗi khi lưu file: {e}")
 
- 
+            st.session_state.confirm_mode = False
 
+        if no:
+            st.session_state.confirm_mode = False
+            st.warning("Bạn đã hủy đăng bài.")
 
+with tab5:
+
+    st.markdown("""
+    <h2 style="text-align:center; margin-bottom:10px;">
+        Danh sách bài đăng bất thường
+    </h2>
+    <hr style="border:2px solid white; width:200px; margin:0 auto;margin-bottom:30px;">
+    """, unsafe_allow_html=True)
+    posts_file = r"./posts.csv"
+
+    if not os.path.exists(posts_file):
+        st.info("Chưa có bài đăng bất thường nào.")
+    else:
+        import csv
+        try:
+            df_posts = pd.read_csv(posts_file, quoting=csv.QUOTE_ALL)
+
+            if df_posts.empty:
+                st.info("Chưa có bài đăng bất thường nào.")
+            else:
+
+                # ===== Sort mới nhất xuống dưới =====
+                df_posts = df_posts.sort_values("Thời gian", ascending=False).reset_index(drop=True)
+
+                
+
+                # ===== Hiển thị từng dòng =====
+                for idx, row in df_posts.iterrows():
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div style='padding:12px;border-radius:8px;border:1px solid #334155;
+                                        margin-bottom:10px;background:#1e293b;color:white;'>
+                                <b>⏱ Thời gian:</b> {row['Thời gian']}<br>
+                                <b>🚘 Hãng xe:</b> {row['Hãng xe']} — <b>{row['Dòng xe']}</b><br>
+                                <b>💰 Giá:</b> {row['Giá bán']:,} VND<br>
+                                <b>📌 Ghi chú:</b> {row['Ghi chú']}
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                        col1, col2 = st.columns(2)
+
+                        # ===== BUTTON DUYỆT / HỦY =====
+                        approve = col1.button("✔ Duyệt", key=f"ok_{idx}")
+                        reject = col2.button("✖ Hủy", key=f"rej_{idx}")
+
+                        if approve:
+                            st.success(f"Đã duyệt bài đăng #{idx + 1}")
+
+                        if reject:
+                            st.warning(f"Đã hủy bài đăng #{idx + 1}")
+
+        except Exception as e:
+            st.error(f"Không thể đọc file: {e}")
 # ===================  HẾT NỘI DUNG MENU ===================
 
 # Done
